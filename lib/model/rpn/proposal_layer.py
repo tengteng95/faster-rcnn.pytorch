@@ -64,8 +64,16 @@ class _ProposalLayer(nn.Module):
 
         # the first set of _num_anchors channels are bg probs
         # the second set are the fg probs
-        scores = input[0][:, self._num_anchors:, :, :]
-        bbox_deltas = input[1]
+
+        '''
+        input is a tuple: 
+        input[0]: rpn_cls_prob.data
+        input[1]: rpn_bbox_pred.data
+        input[2]: im_info
+        input[3]: cfg_key (TRAIN/TEST)
+        '''
+        scores = input[0][:, self._num_anchors:, :, :] # scores for fg.
+        bbox_deltas = input[1] # offsets BCHW, where C=9*4
         im_info = input[2]
         cfg_key = input[3]
 
@@ -95,12 +103,12 @@ class _ProposalLayer(nn.Module):
         # Transpose and reshape predicted bbox transformations to get them
         # into the same order as the anchors:
 
-        bbox_deltas = bbox_deltas.permute(0, 2, 3, 1).contiguous()
-        bbox_deltas = bbox_deltas.view(batch_size, -1, 4)
+        bbox_deltas = bbox_deltas.permute(0, 2, 3, 1).contiguous()#BCHW->BHWC
+        bbox_deltas = bbox_deltas.view(batch_size, -1, 4) #B(HW9)4
 
         # Same story for the scores:
-        scores = scores.permute(0, 2, 3, 1).contiguous()
-        scores = scores.view(batch_size, -1)
+        scores = scores.permute(0, 2, 3, 1).contiguous() #BCHW->BHWC
+        scores = scores.view(batch_size, -1) #B(HW9)
 
         # Convert anchors into proposals via bbox transformations
         proposals = bbox_transform_inv(anchors, bbox_deltas, batch_size)

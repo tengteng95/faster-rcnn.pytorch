@@ -80,12 +80,13 @@ class _AnchorTargetLayer(nn.Module):
 
         total_anchors = int(K * A)
 
+        # 去掉了越界的anchor
         keep = ((all_anchors[:, 0] >= -self._allowed_border) &
                 (all_anchors[:, 1] >= -self._allowed_border) &
                 (all_anchors[:, 2] < long(im_info[0][1]) + self._allowed_border) &
                 (all_anchors[:, 3] < long(im_info[0][0]) + self._allowed_border))
 
-        inds_inside = torch.nonzero(keep).view(-1)
+        inds_inside = torch.nonzero(keep).view(-1) #nonzero index
 
         # keep only inside anchors
         anchors = all_anchors[inds_inside, :]
@@ -95,15 +96,19 @@ class _AnchorTargetLayer(nn.Module):
         bbox_inside_weights = gt_boxes.new(batch_size, inds_inside.size(0)).zero_()
         bbox_outside_weights = gt_boxes.new(batch_size, inds_inside.size(0)).zero_()
 
-        overlaps = bbox_overlaps_batch(anchors, gt_boxes)
+        # anchors: Nx4, gt_boxes: BxKx4
+        overlaps = bbox_overlaps_batch(anchors, gt_boxes) #BxNxK
 
-        max_overlaps, argmax_overlaps = torch.max(overlaps, 2)
-        gt_max_overlaps, _ = torch.max(overlaps, 1)
+        max_overlaps, argmax_overlaps = torch.max(overlaps, 2) #BxN
+        gt_max_overlaps, _ = torch.max(overlaps, 1) #BxK
 
         if not cfg.TRAIN.RPN_CLOBBER_POSITIVES:
+            # 与所有的gt bbox IoU都小于阈值，置为negative
             labels[max_overlaps < cfg.TRAIN.RPN_NEGATIVE_OVERLAP] = 0
 
+        # 这里不直接使用gt_max_overlaps对应的ind，是因为可能存在多个anchor与gt bbox有相同的IoU。
         gt_max_overlaps[gt_max_overlaps==0] = 1e-5
+        # 这里得到了每个anchor与多少个gt bbox存在最大IoU BxN
         keep = torch.sum(overlaps.eq(gt_max_overlaps.view(batch_size,1,-1).expand_as(overlaps)), 2)
 
         if torch.sum(keep) > 0:
@@ -142,11 +147,13 @@ class _AnchorTargetLayer(nn.Module):
 
                 rand_num = torch.from_numpy(np.random.permutation(bg_inds.size(0))).type_as(gt_boxes).long()
                 disable_inds = bg_inds[rand_num[:bg_inds.size(0)-num_bg]]
-                labels[i][disable_inds] = -1
+                labels[i][disable_inds] = -1 #dont care
 
         offset = torch.arange(0, batch_size)*gt_boxes.size(1)
 
-        argmax_overlaps = argmax_overlaps + offset.view(batch_size, 1).type_as(argmax_overlaps)
+        #计算的index是算上了行数的即， i*row+j
+        argmax_overlaps = argmax_overlaps + offset.view(batch_size, 1).type_as(argmax_overlaps) #bxn
+        #计算target offset.(normalized offset)
         bbox_targets = _compute_targets_batch(anchors, gt_boxes.view(-1,5)[argmax_overlaps.view(-1), :].view(batch_size, -1, 5))
 
         # use a single value instead of 4 values for easy index.
